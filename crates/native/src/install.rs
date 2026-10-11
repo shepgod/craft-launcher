@@ -413,15 +413,22 @@ pub(crate) mod linux {
         }
     }
 
+    /// Fedora Atomic, Bazzite, Silverblue, etc.: the root filesystem is managed by rpm-ostree and
+    /// `dnf install` of local packages is blocked (see Bazzite's `/usr/bin/dnf` wrapper).
+    fn immutable_ostree() -> bool {
+        Path::new("/run/ostree-booted").exists() || which("rpm-ostree").is_some()
+    }
+
     /// What this system can install: its own package format first (when polkit can ask for
     /// permission), then Flatpak, then AppImage, which works everywhere.
     pub fn available_kinds() -> Vec<PackageKind> {
         let mut kinds = Vec::new();
         let root = which("pkexec").is_some();
-        if root && which("apt-get").is_some() && which("dpkg").is_some() {
+        let immutable = immutable_ostree();
+        if root && !immutable && which("apt-get").is_some() && which("dpkg").is_some() {
             kinds.push(PackageKind::Deb);
         }
-        if root && which("rpm").is_some() && which("dpkg").is_none() {
+        if root && !immutable && which("rpm").is_some() && which("dpkg").is_none() {
             kinds.push(PackageKind::Rpm);
         }
         if which("flatpak").is_some() {
@@ -977,6 +984,19 @@ mod tests {
         assert_eq!(ran.len(), 1, "{ran:?}");
         let error = "the system installer stopped with error 100 while handling 2 apps together. Try them one at a time.";
         assert_eq!(results, vec![Err(error.to_string()); 2]);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn immutable_ostree_prefers_portable_formats() {
+        if !Path::new("/run/ostree-booted").exists() && which("rpm-ostree").is_none() {
+            return;
+        }
+        let kinds = available_kinds();
+        assert!(!kinds.contains(&PackageKind::Rpm), "{kinds:?}");
+        assert!(!kinds.contains(&PackageKind::Deb), "{kinds:?}");
+        assert!(kinds.contains(&PackageKind::AppImage), "{kinds:?}");
+        assert_eq!(choose_kinds(None, None, &[]).first(), kinds.first());
     }
 
     #[test]
