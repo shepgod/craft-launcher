@@ -26,12 +26,11 @@ pub enum Filter {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SortKey {
-    /// Suite order: classic apps, then new.
+    /// Suite order: classic apps, then new. Settings saved with the removed "Inspired by" sort load as this.
     #[default]
+    #[serde(alias = "InspiredBy")]
     Suite,
     Name,
-    /// The product an app is inspired by.
-    InspiredBy,
     Status,
     /// Installed version.
     Installed,
@@ -89,7 +88,7 @@ pub struct Settings {
     pub sort_descending: bool,
     pub theme: ThemeChoice,
     /// Interface language: `auto` (follow the system) or a language code from the registry
-    /// (`en`, `ru`, `zh-CN`).
+    /// (`en`, `ru`, `zh-CN`, `de`).
     pub language: String,
     /// Closing the window keeps the launcher in the tray (menu bar) instead of quitting.
     pub close_to_tray: bool,
@@ -132,6 +131,37 @@ impl Settings {
     }
 }
 
+/// Whether this process is running inside a Flatpak container sandbox.
+pub fn is_flatpak_sandbox() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        std::env::var_os("FLATPAK_ID").is_some() || std::path::Path::new("/.flatpak-info").exists()
+    }
+    #[cfg(not(target_os = "linux"))]
+    false
+}
+
+/// Whether this process was launched from an AppImage.
+pub fn is_appimage() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        std::env::var_os("APPIMAGE").is_some()
+    }
+    #[cfg(not(target_os = "linux"))]
+    false
+}
+
+/// Default package kinds preferred on Linux based on how the launcher itself was installed.
+pub fn default_preferred_kinds() -> Vec<PackageKind> {
+    if is_flatpak_sandbox() {
+        vec![PackageKind::Flatpak]
+    } else if is_appimage() {
+        vec![PackageKind::AppImage]
+    } else {
+        Vec::new()
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -147,7 +177,7 @@ impl Default for Settings {
             auto_update: false,
             notify: true,
             prereleases: false,
-            preferred_kinds: Vec::new(),
+            preferred_kinds: default_preferred_kinds(),
             dismissed_notices: std::collections::BTreeSet::new(),
             notified: BTreeMap::new(),
             last_check: None,

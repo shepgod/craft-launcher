@@ -201,11 +201,9 @@ fn grid_shows_every_status_and_installs_on_click() {
     h.get_by_label("Update to 0.5.0");
     h.get_by_label("Update to 0.6.0");
     h.get_by_label_contains("0.4.1 installed → 0.5.0 released");
-    h.get_by_label("Like Adobe Photoshop®");
     // The window has no title bar of its own here (the web build, and the tests).
     assert!(h.query_by_label("Close").is_none());
     assert!(h.query_all_by_label_contains("Discord").count() >= 2); // header link and footer link
-    h.get_by_label_contains("Adobe, Photoshop, Illustrator");
     assert!(h.query_all_by_label("Coming soon").count() >= 1);
     h.get_by_label_contains("48 MB of 131 MB");
     h.get_by_label("Update all (2)").click();
@@ -367,9 +365,6 @@ fn table_view_and_light_theme() {
     let (mut h, sent) = harness(ViewMode::Table, egui::Theme::Light, true);
     h.run_steps(8);
     snapshot(&mut h, "table-light");
-    h.get_by_label("Adobe Photoshop®");
-    h.get_by_label("Microsoft Excel®");
-    h.get_by_label_contains("Avid and Pro Tools are trademarks");
     h.get_by_label("Update to 0.5.0").click();
     h.run_steps(2);
     assert!(sent.borrow().contains(&Command::Install { app: "photocraft".into() }));
@@ -411,7 +406,7 @@ fn name_and_tagline_are_centred_on_the_icon() {
         let (mut h, _) = harness_at(ViewMode::Grid, egui::Theme::Dark, true, scale);
         h.run_steps(8);
         snapshot(&mut h, &format!("grid-dark{suffix}"));
-        let off = below_icon_centre(&h, &["PhotoCraft", "Image editing", "Like Adobe Photoshop®"]);
+        let off = below_icon_centre(&h, &["PhotoCraft", "Image editing"]);
         assert!(off.abs() < 0.25, "grid at {scale}x: {off}");
         let (mut h, _) = harness_at(ViewMode::Table, egui::Theme::Light, true, scale);
         h.run_steps(8);
@@ -453,11 +448,6 @@ fn every_table_column_sorts_both_ways() {
     h.run_steps(3);
     let o = order(&h);
     assert_eq!(&o[..4], ["WordCraft", "LightCraft", "PhotoCraft", "EffectCraft"], "{o:?}");
-    // Inspired by: A to Z.
-    h.get_by_label("Inspired by").click();
-    h.run_steps(3);
-    let o = order(&h);
-    assert_eq!(o.first().map(String::as_str), Some("PdfCraft"), "{o:?}"); // Adobe Acrobat
     // Latest: highest version first, SoundCraft (no release) last.
     h.get_by_label("Latest").click();
     h.run_steps(3);
@@ -493,18 +483,19 @@ fn links_to_the_website_github_and_each_apps_pages() {
     for label in ["Website", "GitHub", "Discord"] {
         assert!(h.query_all_by_label(label).count() >= 1, "{label}");
     }
-    // Cards: every app links to its repo; only the seven classic apps have a website (plus the footer's).
+    // Cards: every app links to its repo and to its own page on getartcraft.com (plus the footer's).
     let shown_cards = h.query_all_by_label("GitHub").count() - 1;
     let shown_sites = h.query_all_by_label("Website").count() - 1;
-    assert!(shown_cards >= 7, "{shown_cards}");
-    assert_eq!(shown_sites, 7, "only classic apps have website pages");
-    // The table's … menu has the app's GitHub repo and, for a new app, no website yet.
+    assert!(shown_cards >= 12, "{shown_cards}");
+    assert_eq!(shown_sites, 12, "every app has a website page");
+    // The table's … menu has the app's website and GitHub repo.
     let (mut h, _) = harness(ViewMode::Table, egui::Theme::Dark, true);
     h.run_steps(6);
     h.get_all_by_label("…").nth(7).unwrap().click(); // WordCraft
     h.run_steps(3);
     h.get_by_label("GitHub repository");
-    h.get_by_label("Website (coming soon)");
+    // The footer's Website link and WordCraft's now-live one in the menu.
+    assert!(h.query_all_by_label_contains("Website").count() >= 2);
 }
 
 /// Clicks the `n`th widget labelled `label` and returns the URL the app asked to open.
@@ -850,7 +841,7 @@ fn custom_title_bar_has_window_buttons() {
         }
     }
     let mut backend = Some(Fake { events: events(), sent: Rc::new(RefCell::new(Vec::new())), manage: true, clock: Rc::new(Cell::new(NOW)) });
-    let mut h = Harness::builder().with_size(egui::vec2(1180.0, 900.0)).wgpu().build_ui_state(
+    let mut h = Harness::builder().with_size(egui::vec2(1180.0, 900.0)).build_ui_state(
         move |ui, state: &mut Option<LauncherUi>| {
             if state.is_none()
                 && let Some(b) = backend.take()
@@ -872,4 +863,48 @@ fn custom_title_bar_has_window_buttons() {
     h.step();
     let closes = h.output().viewport_output.values().any(|v| v.commands.contains(&egui::ViewportCommand::Close));
     assert!(closes, "the close button asks the window to close (the shell decides whether that hides it to the tray)");
+}
+
+#[test]
+fn the_rate_limit_notice_never_runs_under_the_footer_links() {
+    for width in [720.0, 960.0, 1180.0] {
+        let mut evs = events();
+        evs.push(Event::CheckFinished { at: NOW - 180, source: Source::GitHubApi, rate_limited_until: Some(NOW + 1800) });
+        let mut backend = Some(Fake { events: evs, sent: Rc::new(RefCell::new(Vec::new())), manage: true, clock: Rc::new(Cell::new(NOW)) });
+        let mut h = Harness::builder().with_size(egui::vec2(width, 900.0)).build_ui_state(
+            move |ui, state: &mut Option<LauncherUi>| {
+                if state.is_none()
+                    && let Some(b) = backend.take()
+                {
+                    *state = Some(LauncherUi::new(ui.ctx(), Box::new(b), Settings { notify: false, ..Settings::default() }));
+                }
+                if let Some(l) = state.as_mut() {
+                    l.logic(&ui.ctx().clone(), &mut NoHost);
+                    l.ui(ui, &mut NoHost);
+                }
+            },
+            None,
+        );
+        h.run_steps(6);
+        snapshot(&mut h, &format!("footer-rate-limited-{width}"));
+        // Full or short, the notice says when GitHub can be asked again.
+        let notice = h.get_by_label_contains("in 30 min").rect();
+        let checked = h.get_by_label_contains("Checked ").rect();
+        // Cut short in a narrow window, but enough of it left to read.
+        assert!(notice.width() >= 120.0 && notice.right() <= width, "{width}: notice {notice:?}");
+        // Everything on the footer's right: the three links, the social icons and (when there's
+        // room) the platform.
+        let mut right = Vec::new();
+        for label in ["Website", "GitHub", "Discord", "X", "YouTube", "TikTok", "Instagram", "LinkedIn"] {
+            right.extend(h.query_all_by_label(label).map(|n| n.rect()).filter(|r| (r.center().y - notice.center().y).abs() < 12.0));
+        }
+        assert_eq!(right.len(), 8, "{width}: {right:?}");
+        let platform = h.query_by_label_contains("Installing for").map(|n| n.rect());
+        assert_eq!(platform.is_some(), width > 720.0, "{width}: the platform label shows unless the window is narrow");
+        right.extend(platform);
+        for r in right {
+            assert!(!r.intersects(notice), "{width}: notice {notice:?} overlaps {r:?}");
+            assert!(!r.intersects(checked), "{width}: check time {checked:?} overlaps {r:?}");
+        }
+    }
 }

@@ -34,7 +34,6 @@
 	Sort	Сортировка
 	Suite order	По классу приложений
 	Name	Имя
-	Inspired by	Вдохновлено
 	Status	Статус
 	Installed version	Установленная версия
 	Latest version	Последняя версия
@@ -181,6 +180,7 @@ month	Nov	нояб.
 month	Dec	дек.
 	Not checked yet	Ещё не проверялось
 	GitHub's hourly limit was reached; full details return in {min} min	Достигнут часовой лимит GitHub; полные детали вернутся через {min} мин
+	GitHub limit hit; back in {min} min	Лимит GitHub исчерпан; вернётся через {min} мин
 	Installing for {platform}	Установка для {platform}
 	Downloads for {platform}	Скачивание для {platform}
 	No downloads for this system	Нет загрузок для этой системы
@@ -214,7 +214,6 @@ month	Dec	дек.
 	Descending	По убыванию
 	Click to reverse the order	Нажмите, чтобы изменить порядок
 	Click to sort by this column	Нажмите, чтобы сортировать по этому столбцу
-	Like {name}	Аналог {name}
 	{done} of {total}	{done} из {total}
 	Downloading	Скачивание
 	Verifying checksum…	Проверка контрольной суммы…
@@ -224,7 +223,6 @@ month	Dec	дек.
 	Checking for updates…	Проверка обновлений…
 	Downloads the new version, replaces this one and opens it again	Скачивает новую версию, заменяет текущую и открывает её заново
 	Couldn't check for updates: {f}	Не удалось проверить обновления: {f}
-	Website (coming soon)	Веб-сайт (скоро)
 	GitHub repository	Репозиторий GitHub
 	ArtCraft	ArtCraft
 	Update 1 app	Обновить 1 приложение
@@ -298,7 +296,6 @@ filter	Installed	Установлены
 @id	filter.notinstalled	Не установленные
 @id	sort.suite	По классу приложений
 @id	sort.name	Имя
-@id	sort.inspired	Вдохновлено
 @id	sort.status	Статус
 @id	sort.installed	Установленная версия
 @id	sort.latest	Последняя версия

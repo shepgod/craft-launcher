@@ -52,6 +52,8 @@ enum Primary {
 pub(crate) const HEADER_H: f32 = 48.0;
 /// Height of the footer bar.
 pub(crate) const FOOTER_H: f32 = 34.0;
+/// The footer drops its platform label rather than leave the status less room than this.
+const FOOTER_MIN_STATUS_W: f32 = 300.0;
 
 const CARD_MIN_W: f32 = 320.0;
 const CARD_H: f32 = 280.0;
@@ -60,9 +62,6 @@ const STRIP_H: f32 = 40.0;
 const CARD_PAD: f32 = 20.0;
 /// Room macOS's traffic lights take at the left of the header.
 const TRAFFIC_LIGHTS_W: f32 = 72.0;
-
-/// A run of cards, under an optional (number, title) eyebrow.
-type Section = (Option<(&'static str, &'static str)>, Vec<&'static str>);
 
 impl LauncherUi {
     /// The header bar; with a custom or macOS title bar it is also the window's title bar.
@@ -232,15 +231,7 @@ impl LauncherUi {
                         .selected_text(RichText::new(sort_label(self.settings.sort)).size(13.0))
                         .width(140.0)
                         .show_ui(ui, |ui| {
-                            for key in [
-                                SortKey::Suite,
-                                SortKey::Name,
-                                SortKey::InspiredBy,
-                                SortKey::Status,
-                                SortKey::Installed,
-                                SortKey::Latest,
-                                SortKey::Released,
-                            ] {
+                            for key in [SortKey::Suite, SortKey::Name, SortKey::Status, SortKey::Installed, SortKey::Latest, SortKey::Released] {
                                 if ui.selectable_label(self.settings.sort == key, sort_label(key)).clicked() {
                                     self.settings.sort = key;
                                     self.settings.sort_descending = key.starts_descending();
@@ -291,51 +282,81 @@ impl LauncherUi {
     pub(crate) fn footer(&mut self, ui: &mut Ui) {
         let t = Tokens::get(ui.ctx());
         let now = self.backend.now();
-        ui.horizontal_centered(|ui| {
-            if self.checking {
-                widgets::hud(ui, tl!("Checking for updates…"), t.faint);
-            } else if let Some(at) = self.settings.last_check {
-                let ago = ago_text(at, now);
-                let text = match self.sources_label() {
-                    Some(using) => fmt(tl!("Checked {ago} · using {sources}"), &[("ago", &ago), ("sources", &using)]),
-                    None => fmt(tl!("Checked {ago}"), &[("ago", &ago)]),
-                };
-                widgets::hud(ui, &text, t.faint);
-            } else {
-                widgets::hud(ui, tl!("Not checked yet"), t.faint);
+        let status = if self.checking {
+            tl!("Checking for updates…").to_string()
+        } else if let Some(at) = self.settings.last_check {
+            let ago = ago_text(at, now);
+            match self.sources_label() {
+                Some(using) => fmt(tl!("Checked {ago} · using {sources}"), &[("ago", &ago), ("sources", &using)]),
+                None => fmt(tl!("Checked {ago}"), &[("ago", &ago)]),
             }
-            if let Some(until) = self.rate_limited_until.filter(|u| *u > now) {
-                ui.label(
-                    RichText::new(format!(
-                        "· {}",
-                        fmt(
-                            tl!("GitHub's hourly limit was reached; full details return in {min} min"),
-                            &[("min", &((until - now) / 60).max(1).to_string())]
-                        )
-                    ))
-                    .size(12.0)
-                    .color(t.warn),
-                );
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let label = match self.platform {
-                    Some(p) if self.caps.manage_apps => fmt(tl!("Installing for {platform}"), &[("platform", &p.label())]),
-                    Some(p) => fmt(tl!("Downloads for {platform}"), &[("platform", &p.label())]),
-                    None => tl!("No downloads for this system").into(),
-                };
-                widgets::hud(ui, &label, t.faint);
+        } else {
+            tl!("Not checked yet").to_string()
+        };
+        // The full notice, and a short one for a narrow window.
+        let notice = self.rate_limited_until.filter(|u| *u > now).map(|until| {
+            let min = ((until - now) / 60).max(1).to_string();
+            let full = fmt(tl!("GitHub's hourly limit was reached; full details return in {min} min"), &[("min", &min)]);
+            let short = fmt(tl!("GitHub limit hit; back in {min} min"), &[("min", &min)]);
+            (format!("· {full}"), format!("· {short}"))
+        });
+        let platform = match self.platform {
+            Some(p) if self.caps.manage_apps => fmt(tl!("Installing for {platform}"), &[("platform", &p.label())]),
+            Some(p) => fmt(tl!("Downloads for {platform}"), &[("platform", &p.label())]),
+            None => tl!("No downloads for this system").into(),
+        };
+        use artcraft_launcher_core::catalog::{DISCORD_URL, GITHUB_URL, SOCIAL, WEBSITE_URL};
+        let links = [(tl!("Discord"), DISCORD_URL), (tl!("GitHub"), GITHUB_URL), (tl!("Website"), WEBSITE_URL)];
+        let (icon, link_gap) = (13.0, 16.0);
+        // The links and icons on the right keep their size; the status on the left gets what is
+        // left and is cut short with "…", never drawn under them. A narrow window drops the
+        // platform label first, so the status keeps room to be read.
+        let spacing = ui.spacing().item_spacing.x;
+        let links_w: f32 =
+            links.iter().map(|(text, _)| widgets::hud_galley(ui, &format!("{text} ↗"), t.muted).size().x + link_gap).sum::<f32>() - link_gap;
+        let icons_w = SOCIAL.len() as f32 * (icon + 8.0);
+        let platform_w = widgets::hud_galley(ui, &platform, t.faint).size().x + 16.0 + spacing;
+        let left_w = ui.available_width() - icons_w - 12.0 - links_w - 16.0 - 3.0 * spacing;
+        let show_platform = left_w - platform_w >= FOOTER_MIN_STATUS_W;
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if show_platform {
+                widgets::hud(ui, &platform, t.faint);
                 ui.add_space(16.0);
-                // Right to left, so this reads: Website · GitHub · Discord, then the social icons.
-                ui.scope(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    widgets::social_icons(ui, 13.0);
+            }
+            // Right to left, so this reads: Website · GitHub · Discord, then the social icons.
+            ui.scope(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                widgets::social_icons(ui, icon);
+            });
+            ui.add_space(12.0);
+            ui.scope(|ui| {
+                ui.spacing_mut().item_spacing.x = link_gap;
+                for (text, url) in links {
+                    widgets::hud_link(ui, text, url);
+                }
+            });
+            ui.add_space(16.0);
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                // While GitHub is rate limited, saying so matters more than when we last checked.
+                let avail = ui.available_width();
+                let text = |s: &str| RichText::new(s).size(12.0).color(t.warn);
+                let width = |ui: &Ui, s: &str| {
+                    egui::WidgetText::from(text(s)).into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, egui::TextStyle::Body).size().x
+                        + spacing
+                };
+                // The short notice once the full one would leave the status under a third.
+                let notice = notice.map(|(full, short)| {
+                    let w = width(ui, &full);
+                    if w <= avail * 0.7 { (full, None, w) } else { (short.clone(), Some(full), width(ui, &short)) }
                 });
-                ui.add_space(12.0);
-                ui.spacing_mut().item_spacing.x = 16.0;
-                use artcraft_launcher_core::catalog::{DISCORD_URL, GITHUB_URL, WEBSITE_URL};
-                widgets::hud_link(ui, tl!("Discord"), DISCORD_URL);
-                widgets::hud_link(ui, tl!("GitHub"), GITHUB_URL);
-                widgets::hud_link(ui, tl!("Website"), WEBSITE_URL);
+                let notice_w = notice.as_ref().map_or(0.0, |(_, _, w)| *w);
+                widgets::hud_elided(ui, &status, t.faint, (avail - notice_w).max(avail * 0.3));
+                if let Some((shown, full, _)) = notice {
+                    let resp = ui.add(egui::Label::new(text(&shown)).truncate());
+                    if let Some(full) = full {
+                        resp.on_hover_text(full);
+                    }
+                }
             });
         });
     }
@@ -347,44 +368,15 @@ impl LauncherUi {
         // Neighbouring cards share their 1 px hairline, like the site's `gap-px` grid.
         let cols = ((width / CARD_MIN_W).floor() as usize).max(1);
         let card_w = (width + (cols as f32 - 1.0)) / cols as f32;
-        // In suite order, split into the classic apps and the new ones.
-        let grouped = self.settings.sort == SortKey::Suite && self.settings.filter == Filter::All && self.search.trim().is_empty();
-        let sections: Vec<Section> = if grouped {
-            [(AppGroup::Classic, "01", tl!("Classic apps")), (AppGroup::New, "02", tl!("New apps"))]
-                .iter()
-                .map(|(g, index, title)| {
-                    let list = ids.iter().copied().filter(|id| self.entry(id).is_some_and(|e| e.app.group == *g)).collect();
-                    (Some((*index, *title)), list)
-                })
-                .collect()
-        } else {
-            vec![(None, ids.to_vec())]
-        };
-        let t = Tokens::get(ui.ctx());
-        for (title, list) in sections {
-            if list.is_empty() {
-                continue;
-            }
-            if let Some((index, title)) = title {
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    widgets::eyebrow(ui, index, title);
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        widgets::hud(ui, &tn(list.len() as u64, "{n} app", "{n} apps"), t.faint);
-                    });
-                });
-                ui.add_space(10.0);
-            }
-            let rows = list.len().div_ceil(cols);
-            let height = rows as f32 * (CARD_H - 1.0) + 1.0;
-            let (area, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
-            for (i, id) in list.iter().enumerate() {
-                let (row, col) = (i / cols, i % cols);
-                let min = area.min + vec2(col as f32 * (card_w - 1.0), row as f32 * (CARD_H - 1.0));
-                self.card(ui, id, Rect::from_min_size(min, vec2(card_w, CARD_H)));
-            }
-            ui.add_space(24.0);
+        let rows = ids.len().div_ceil(cols);
+        let height = rows as f32 * (CARD_H - 1.0) + 1.0;
+        let (area, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+        for (i, id) in ids.iter().enumerate() {
+            let (row, col) = (i / cols, i % cols);
+            let min = area.min + vec2(col as f32 * (card_w - 1.0), row as f32 * (CARD_H - 1.0));
+            self.card(ui, id, Rect::from_min_size(min, vec2(card_w, CARD_H)));
         }
+        ui.add_space(24.0);
     }
 
     fn card(&mut self, ui: &mut Ui, id: &str, rect: Rect) {
@@ -413,9 +405,7 @@ impl LauncherUi {
             strip_ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 16.0;
                 widgets::hud_link(ui, tl!("GitHub"), &app.repo_url());
-                if let Some(site) = app.website() {
-                    widgets::hud_link(ui, tl!("Website"), &site);
-                }
+                widgets::hud_link(ui, tl!("Website"), &app.website());
             });
         }
 
@@ -427,10 +417,10 @@ impl LauncherUi {
         let ui = &mut child;
         ui.horizontal(|ui| {
             const ICON: f32 = 56.0;
-            let [name, tagline, like] = [FontId::new(22.0, theme::display()), FontId::proportional(13.5), FontId::proportional(12.0)];
+            let [name, tagline] = [FontId::new(22.0, theme::display()), FontId::proportional(13.5)];
             const GAP: f32 = 4.0;
             // The slot is as tall as the text beside it when that is taller, so the two share a centre.
-            let block = lines_height(ui, &[&name, &tagline, &like], GAP);
+            let block = lines_height(ui, &[&name, &tagline], GAP);
             let (slot, icon_response) = ui.allocate_exact_size(vec2(ICON, block.max(ICON)), Sense::hover());
             icon_response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, fmt(tl!("{name} icon"), &[("name", app.name)])));
             // The icon rises a little on hover, over a soft drop shadow (the site's only shadow).
@@ -443,7 +433,7 @@ impl LauncherUi {
                 egui::Image::new(icon).paint_at(ui, icon_rect);
             }
             ui.add_space(6.0);
-            centered_lines(ui, &[&name, &tagline, &like], GAP, |ui| {
+            centered_lines(ui, &[&name, &tagline], GAP, |ui| {
                 // The name's row is as tall as its text, not as a button.
                 ui.spacing_mut().interact_size.y = 0.0;
                 ui.horizontal(|ui| {
@@ -453,10 +443,6 @@ impl LauncherUi {
                     }
                 });
                 ui.add(egui::Label::new(RichText::new(tr_ctx(current(), app.id, app.tagline)).font(tagline.clone()).color(t.muted)).truncate());
-                ui.add(
-                    egui::Label::new(RichText::new(fmt(tl!("Like {name}"), &[("name", &app.inspired_by())])).font(like.clone()).color(t.faint))
-                        .truncate(),
-                );
             });
         });
         ui.add_space(14.0);
@@ -501,7 +487,6 @@ impl LauncherUi {
                 .vscroll(false)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                 .column(Column::remainder().at_least(220.0).clip(true))
-                .column(Column::exact(172.0).clip(true))
                 .column(Column::exact(176.0))
                 .column(Column::exact(84.0))
                 .column(Column::exact(84.0))
@@ -510,7 +495,6 @@ impl LauncherUi {
                 .header(42.0, |mut header| {
                     for (key, label) in [
                         (Some(SortKey::Name), tl!("App")),
-                        (Some(SortKey::InspiredBy), tl!("Inspired by")),
                         (Some(SortKey::Status), tl!("Status")),
                         (Some(SortKey::Installed), tr_ctx(current(), "column", "Installed")),
                         (Some(SortKey::Latest), tr_ctx(current(), "column", "Latest")),
@@ -585,9 +569,6 @@ impl LauncherUi {
                                 });
                             });
                             row.col(|ui| {
-                                ui.add(egui::Label::new(RichText::new(entry.app.inspired_by()).size(13.0).color(t.muted)).truncate());
-                            });
-                            row.col(|ui| {
                                 let (text, tone) = model::entry_status_text(&entry, &status, self.caps.manage_apps);
                                 let r = widgets::badge(ui, &text, widgets::tone_color(&t, tone));
                                 if let Some(f) = entry.failure() {
@@ -625,13 +606,6 @@ impl LauncherUi {
                 self.settings.sort_descending = k.starts_descending();
             }
         }
-    }
-
-    /// The trademark notice under the grid and the table.
-    pub(crate) fn trademark_notice(&self, ui: &mut Ui) {
-        let t = Tokens::get(ui.ctx());
-        ui.add_space(8.0);
-        ui.add(egui::Label::new(RichText::new(artcraft_launcher_core::catalog::TRADEMARK_NOTICE).size(11.0).color(t.faint)).wrap());
     }
 
     // ---- actions -------------------------------------------------------------------------
@@ -852,12 +826,7 @@ impl LauncherUi {
                     ui.close();
                 }
             };
-            match entry.app.website() {
-                Some(site) => link(ui, tl!("Website"), site),
-                None => {
-                    ui.add_enabled(false, egui::Button::new(tl!("Website (coming soon)")));
-                }
-            }
+            link(ui, tl!("Website"), entry.app.website());
             link(ui, tl!("GitHub repository"), entry.app.repo_url());
             link(ui, tl!("All releases"), entry.app.releases_url());
         });
@@ -868,7 +837,6 @@ fn sort_label(k: SortKey) -> &'static str {
     match k {
         SortKey::Suite => tl!("Suite order"),
         SortKey::Name => tl!("Name"),
-        SortKey::InspiredBy => tl!("Inspired by"),
         SortKey::Status => tl!("Status"),
         SortKey::Installed => tl!("Installed version"),
         SortKey::Latest => tl!("Latest version"),

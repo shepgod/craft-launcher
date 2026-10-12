@@ -173,6 +173,12 @@ impl LauncherUi {
         self.entries.iter().filter(|e| e.status(self.platform, self.caps.manage_apps) == AppStatus::UpdateAvailable).count()
     }
 
+    /// Something is downloading or installing, the launcher's own update included: quitting now
+    /// would cut it short.
+    pub fn busy(&self) -> bool {
+        self.launcher_job.is_some() || self.entries.iter().any(|e| e.job.is_some())
+    }
+
     /// Looks for updates now (the tray's "Check for Updates").
     pub fn check_now(&mut self) {
         self.auto_update_attempted.clear();
@@ -401,6 +407,7 @@ impl LauncherUi {
             })
             .collect();
         for (id, version) in to_update {
+            log::info!("auto-update: queuing update for {id} to {version}");
             self.auto_update_attempted.insert((id.clone(), version));
             self.send(Command::Install { app: id });
         }
@@ -411,6 +418,7 @@ impl LauncherUi {
             let id = artcraft_launcher_core::catalog::LAUNCHER_ID.to_string();
             let v = r.version_label();
             if !self.auto_update_attempted.contains(&(id.clone(), v.clone())) {
+                log::info!("auto-update: queuing launcher self-update to {v}");
                 self.auto_update_attempted.insert((id, v));
                 self.send(Command::UpdateLauncher);
             }
@@ -477,7 +485,6 @@ impl LauncherUi {
                             ViewMode::Table => self.table(ui, &ids),
                         }
                     }
-                    self.trademark_notice(ui);
                     ui.add_space(16.0);
                 });
             });
@@ -503,10 +510,7 @@ impl LauncherUi {
                     Filter::Updates => s == AppStatus::UpdateAvailable,
                     Filter::NotInstalled => !s.is_installed(),
                 };
-                keep && (needle.is_empty()
-                    || e.app.name.to_lowercase().contains(&needle)
-                    || e.app.tagline.to_lowercase().contains(&needle)
-                    || e.app.like.to_lowercase().contains(&needle))
+                keep && (needle.is_empty() || e.app.name.to_lowercase().contains(&needle) || e.app.tagline.to_lowercase().contains(&needle))
             })
             .collect();
         let platform = self.platform;
@@ -526,7 +530,6 @@ impl LauncherUi {
             let ord = match self.settings.sort {
                 SortKey::Suite => dir(ia.cmp(ib)),
                 SortKey::Name => dir(a.app.name.cmp(b.app.name)),
-                SortKey::InspiredBy => dir(a.app.like.cmp(b.app.like)),
                 SortKey::Status => {
                     dir(crate::model::status_rank(&a.status(platform, manage)).cmp(&crate::model::status_rank(&b.status(platform, manage))))
                 }
