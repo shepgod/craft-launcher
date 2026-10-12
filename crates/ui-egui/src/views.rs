@@ -80,11 +80,6 @@ impl LauncherUi {
             let logo = vec2(14.0 * crate::icons::ARTCRAFT_LOGO_ASPECT, 14.0);
             let (cell, _) = ui.allocate_exact_size(vec2(logo.x + 40.0, h), Sense::hover());
             egui::Image::new(crate::icons::artcraft_logo(t.dark)).alt_text(tl!("ArtCraft")).paint_at(ui, Rect::from_center_size(cell.center(), logo));
-            widgets::rule(ui, h);
-            ui.add_space(16.0);
-            widgets::tag(ui, tl!("Launcher"), t.invert_bg, t.invert_fg);
-            ui.add_space(12.0);
-            widgets::hud(ui, tl!("Craft App Suite"), t.muted);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if bar == TitleBar::Custom {
                     widgets::window_buttons(ui, h);
@@ -112,6 +107,20 @@ impl LauncherUi {
                 }
                 ui.add_space(6.0);
                 widgets::rule(ui, h);
+                // The controls reserve their actual widths before the secondary text gets space.
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    let tag_width =
+                        widgets::caps(ui, tl!("Launcher"), theme::HUD_SIZE, theme::mono_bold(), theme::HUD_SPACING, t.ink).size().x + 16.0;
+                    if ui.available_width() >= 17.0 + tag_width {
+                        widgets::rule(ui, h);
+                        ui.add_space(16.0);
+                        widgets::tag(ui, tl!("Launcher"), t.invert_bg, t.invert_fg);
+                    }
+                    if ui.available_width() >= 12.0 + widgets::hud_galley(ui, tl!("Craft App Suite"), t.muted).size().x {
+                        ui.add_space(12.0);
+                        widgets::hud(ui, tl!("Craft App Suite"), t.muted);
+                    }
+                });
             });
         });
     }
@@ -847,14 +856,18 @@ fn sort_label(k: SortKey) -> &'static str {
 /// "0.4.1 installed → 0.5.0 released · Oct 8, 2026" and friends.
 fn version_line(e: &AppEntry, status: &AppStatus) -> String {
     let released = e.release().and_then(|r| r.published_at).map(|at| format!(" · {}", date_text(at))).unwrap_or_default();
-    match (status, e.installed_label(), e.latest_label()) {
+    let inst_ver = e.installed.as_ref().and_then(|i| i.version.as_ref().map(ToString::to_string));
+    let latest = e.latest_label();
+    match (status, inst_ver.as_deref(), latest.as_deref()) {
         (AppStatus::UpdateAvailable, Some(i), Some(l)) => {
-            format!("{}{released}", fmt(tl!("{version} installed → {latest} released"), &[("version", i.as_str()), ("latest", l.as_str())]))
+            format!("{}{released}", fmt(tl!("{version} installed → {latest} released"), &[("version", i), ("latest", l)]))
         }
-        (AppStatus::UpToDate, Some(i), _) => format!("{}{released}", fmt(tl!("Version {version}"), &[("version", i.as_str())])),
-        (_, Some(i), Some(l)) => fmt(tl!("{installed} installed · latest {latest}"), &[("installed", i.as_str()), ("latest", l.as_str())]),
-        (_, Some(i), None) => fmt(tl!("Version {version} installed"), &[("version", i.as_str())]),
-        (_, None, Some(l)) => format!("{}{released}", fmt(tl!("Version {latest}"), &[("latest", l.as_str())])),
+        (AppStatus::UpToDate, Some(i), _) => format!("{}{released}", fmt(tl!("Version {version}"), &[("version", i)])),
+        (_, Some(i), Some(l)) => fmt(tl!("{installed} installed · latest {latest}"), &[("installed", i), ("latest", l)]),
+        (_, None, Some(l)) if e.installed.is_some() => fmt(tl!("Installed · latest {latest}"), &[("latest", l)]),
+        (_, Some(i), None) => fmt(tl!("Version {version} installed"), &[("version", i)]),
+        (_, None, None) if e.installed.is_some() => tl!("Installed").to_string(),
+        (_, None, Some(l)) => format!("{}{released}", fmt(tl!("Version {latest}"), &[("latest", l)])),
         (AppStatus::NoRelease, None, None) => tl!("No release published yet").to_string(),
         _ => " ".to_string(),
     }

@@ -85,12 +85,13 @@ The web version shows the same catalog in the browser, with the latest download 
 ## Interface languages
 
 The interface is in English, Brazilian Portuguese (Português (Brasil)), French (Français), German
-(Deutsch), Russian (Русский) or Simplified Chinese (简体中文). **Auto**, the default, follows the
-system or browser language; **Settings → Language** picks one and switches at once, and the choice
-is kept between runs. German locales (`de-DE`, `de-AT`, `de-CH`, `de_DE.UTF-8`…) select German,
-French ones (`fr-FR`, `fr-CA`…) French, and Portuguese ones (`pt-BR`, and `pt-PT` too, for now)
-Brazilian Portuguese. Simplified Chinese locales (`zh-CN`, `zh-SG`, `zh-Hans`, and POSIX forms such
-as `zh_CN.UTF-8`) select Chinese; Traditional Chinese ones don't. To try a language without changing
+(Deutsch), Russian (Русский), Simplified Chinese (简体中文) or Spanish (Español). **Auto**, the
+default, follows the system or browser language; **Settings → Language** picks one and switches at
+once, and the choice is kept between runs. German locales (`de-DE`, `de-AT`, `de-CH`,
+`de_DE.UTF-8`…) select German, French ones (`fr-FR`, `fr-CA`…) French, Spanish ones (`es-ES`,
+`es-MX`, `es-419`…) Spanish, and Portuguese ones (`pt-BR`, and `pt-PT` too, for now) Brazilian
+Portuguese. Simplified Chinese locales (`zh-CN`, `zh-SG`, `zh-Hans`, and POSIX forms such as
+`zh_CN.UTF-8`) select Chinese; Traditional Chinese ones don't. To try a language without changing
 the setting, start the desktop app with `ARTCRAFT_LAUNCHER_LOCALE=pt-BR`, or add `?lang=ru` to the
 web address.
 
@@ -110,6 +111,7 @@ installed by hand (and the launcher finds apps you installed yourself):
 | macOS | `/Applications/<App>.app` | Copied from the signed, notarized release DMG |
 | Windows | `C:\Program Files\<App>` | The release MSI, through Windows Installer (with Start menu entry and Apps & features entry) |
 | Linux | `/usr/bin`, `/usr/share/applications` | The release `.deb` (apt) or `.rpm` (dnf, zypper), with your system's password prompt. Without those, a Flatpak, or an AppImage in `~/Applications` |
+| Linux, inside the launcher's Flatpak, with no Flatpak on the host | `~/.var/app/ai.storyteller.artcraft-launcher/data/artcraft-launcher/apps/<app>` | The release tarball, unpacked into the launcher's own folder and run inside the same sandbox, with its settings in a `home/` folder beside it. Nothing is installed on the host, and each app's configuration stays in the sandbox |
 | FreeBSD | `/usr/local` | The release tree, with a password prompt (polkit); `~/.local` when polkit isn't installed |
 
 ArtCraft Launcher keeps itself current too: when a new version is out, **Update and restart**
@@ -118,6 +120,12 @@ package or portable folder, the AppImage, or the `.deb`/`.rpm`) and reopens it.
 
 Updates use the same format an app was installed with. Every download is checked against the
 release's published SHA-256 before it is installed, and a running app is never replaced.
+
+The launcher writes its log to `logs/artcraft-launcher.log` in its data folder
+(`~/.local/share/artcraft-launcher` on Linux, `~/Library/Application Support/ArtCraft Launcher`
+on macOS, `%LOCALAPPDATA%\ArtCraft Launcher` on Windows, `ArtCraftLauncherData` beside the
+portable zip's executable) and keeps the previous two runs as `artcraft-launcher.1.log` and
+`artcraft-launcher.2.log`. `RUST_LOG` changes what it records (`debug`, `info,zbus=warn`, …).
 
 ## Downloads
 
@@ -145,7 +153,7 @@ Download the build for your computer from the [latest release](https://github.co
 | `artcraft-launcher-<ver>-linux-{x86_64,aarch64}.AppImage` | Runs on almost any distro without installing; `chmod +x` and run. The `.AppImage.zsync` beside it lets AppImageUpdate fetch only what changed |
 | `artcraft-launcher-<ver>-linux-{x86_64,aarch64}.deb` | Debian, Ubuntu, Mint, Pop!_OS: `sudo apt install ./artcraft-launcher-…deb` |
 | `artcraft-launcher-<ver>-linux-{x86_64,aarch64}.rpm` | Fedora, openSUSE, RHEL: `sudo dnf install ./artcraft-launcher-…rpm` |
-| `artcraft-launcher-<ver>-linux-{x86_64,aarch64}.flatpak` | Flatpak bundle: `flatpak install --user artcraft-launcher-…flatpak`. Inside the sandbox the launcher can download apps but has limited power to install them on the host; prefer the AppImage, .deb or .rpm |
+| `artcraft-launcher-<ver>-linux-{x86_64,aarch64}.flatpak` | Flatpak bundle: `flatpak install --user artcraft-launcher-…flatpak`. Inside the sandbox the launcher installs apps as Flatpaks on the host through `flatpak-spawn --host`; where the host has no Flatpak it falls back to each app's release tarball, unpacked and run inside the sandbox with the app's settings kept in it. Either way it can only reach the host as far as that permission allows; the AppImage, .deb and .rpm builds are the recommended way to run the launcher on Linux |
 | `artcraft-launcher-<ver>-linux-{x86_64,aarch64}.tar.gz` | Plain tree (`bin/`, `share/`) for everyone else and for scripts |
 
 RISC-V (riscv64): `artcraft-launcher-<ver>-linux-riscv64.{deb,rpm,tar.gz}`, built against Ubuntu 24.04 (needs glibc 2.39+).
@@ -213,7 +221,7 @@ New contributors and AI agents: start with [`AGENTS.md`](AGENTS.md). Release pac
 
 > [!IMPORTANT]
 > **Status:** ArtCraft Launcher is new and in early alpha. Expect rough edges, and please file
-> issues (include your OS and which app you were installing) or tell us on
+> issues (include your OS, which app you were installing and the launcher's log file) or tell us on
 > [Discord](https://discord.gg/artcraft).
 
 ## The Craft App Suite
